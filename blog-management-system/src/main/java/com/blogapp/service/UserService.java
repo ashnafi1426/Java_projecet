@@ -1,71 +1,87 @@
-package com.blogapp.service;
+package com.blogapp.desktop.services;
 
-import com.blogapp.dto.UserDTO;
-import com.blogapp.entity.User;
-import com.blogapp.exception.ResourceNotFoundException;
-import com.blogapp.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.blogapp.desktop.models.User;
+import com.blogapp.desktop.utils.HttpClientUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.concurrent.CompletableFuture;
 
-@Service
-@RequiredArgsConstructor
+/**
+ * User Service - Handles user-related operations
+ */
 public class UserService {
     
-    private final UserRepository userRepository;
+    private static final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
     
     /**
-     * Get all users
+     * Get all users in the system
      */
-    public List<UserDTO> getAllUsers() {
-        List<User> users = userRepository.findAll();
-        return users.stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+    public static CompletableFuture<List<User>> getAllUsers(String token) {
+        return HttpClientUtil.get("/users", token, JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        System.out.println("DEBUG: Get all users response: " + response.toString());
+                        // Backend returns: { success, message, data: [UserDTO] }
+                        JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            System.err.println("ERROR: No data in get users response");
+                            return new ArrayList<>();
+                        }
+                        
+                        return mapper.readValue(dataNode.toString(), new TypeReference<List<User>>() {});
+                    } catch (Exception e) {
+                        System.err.println("ERROR: Failed to parse users: " + e.getMessage());
+                        e.printStackTrace();
+                        return new ArrayList<>();
+                    }
+                });
     }
     
     /**
      * Search users by name or username
      */
-    public List<UserDTO> searchUsers(String query) {
-        String searchQuery = "%" + query.toLowerCase() + "%";
-        List<User> users = userRepository.searchByNameOrUsername(searchQuery);
-        return users.stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+    public static CompletableFuture<List<User>> searchUsers(String query, String token) {
+        return HttpClientUtil.get("/users/search?q=" + query, token, JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        System.out.println("DEBUG: Search users response: " + response.toString());
+                        JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            System.err.println("ERROR: No data in search users response");
+                            return new ArrayList<>();
+                        }
+                        
+                        return mapper.readValue(dataNode.toString(), new TypeReference<List<User>>() {});
+                    } catch (Exception e) {
+                        System.err.println("ERROR: Failed to parse search results: " + e.getMessage());
+                        e.printStackTrace();
+                        return new ArrayList<>();
+                    }
+                });
     }
     
     /**
      * Get user by ID
      */
-    public UserDTO getUserById(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return convertToDTO(user);
-    }
-    
-    private UserDTO convertToDTO(User user) {
-        UserDTO dto = new UserDTO();
-        dto.setUserId(user.getUserId());
-        dto.setUsername(user.getUsername());
-        dto.setEmail(user.getEmail());
-        dto.setFirstname(user.getFirstname());
-        dto.setLastname(user.getLastname());
-        dto.setDisplayName(user.getDisplayName());
-        dto.setBio(user.getBio());
-        dto.setCreatedAt(user.getCreatedAt());
-        
-        // Calculate counts
-        Integer followersCount = userRepository.countFollowers(user.getUserId());
-        Integer followingCount = userRepository.countFollowing(user.getUserId());
-        
-        dto.setFollowersCount(followersCount != null ? followersCount : 0);
-        dto.setFollowingCount(followingCount != null ? followingCount : 0);
-        dto.setPostsCount(0); // TODO: Implement post count
-        
-        return dto;
+    public static CompletableFuture<User> getUserById(String userId, String token) {
+        return HttpClientUtil.get("/users/" + userId, token, JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            throw new RuntimeException("No data in response");
+                        }
+                        
+                        return mapper.readValue(dataNode.toString(), User.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse user", e);
+                    }
+                });
     }
 }
