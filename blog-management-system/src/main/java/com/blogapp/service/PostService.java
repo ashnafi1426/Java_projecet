@@ -1,220 +1,242 @@
-package com.blogapp.service;
+package com.blogapp.desktop.services;
 
-import com.blogapp.dto.PostDTO;
-import com.blogapp.dto.TopicDTO;
-import com.blogapp.dto.UserDTO;
-import com.blogapp.dto.request.PostRequest;
-import com.blogapp.entity.Post;
-import com.blogapp.entity.Topic;
-import com.blogapp.entity.User;
-import com.blogapp.exception.ResourceNotFoundException;
-import com.blogapp.exception.UnauthorizedException;
-import com.blogapp.repository.PostRepository;
-import com.blogapp.repository.TopicRepository;
-import com.blogapp.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.blogapp.desktop.models.Post;
+import com.blogapp.desktop.utils.HttpClientUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-import java.time.LocalDateTime;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
-@Service
-@RequiredArgsConstructor
+/**
+ * Post Service - Handles all post-related operations
+ * Equivalent to React's postService.jsx
+ */
 public class PostService {
     
-    private final PostRepository postRepository;
-    private final UserRepository userRepository;
-    private final TopicRepository topicRepository;
+    private static final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
     
-    @Transactional
-    public PostDTO createPost(PostRequest request, UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        Post post = Post.builder()
-                .user(user)
-                .title(request.getTitle())
-                .subtitle(request.getSubtitle())
-                .content(request.getContent())
-                .contentJson(request.getContentJson())
-                .coverImage(request.getCoverImage())
-                .status(request.getStatus() != null ? request.getStatus() : Post.PostStatus.DRAFT)
-                .visibility(request.getVisibility() != null ? request.getVisibility() : Post.PostVisibility.PUBLIC)
-                .readingTime(calculateReadingTime(request.getContent()))
-                .clapsCount(0)
-                .commentsCount(0)
-                .viewsCount(0)
-                .isFeatured(false)
-                .build();
-        
-        if (request.getTopicIds() != null && !request.getTopicIds().isEmpty()) {
-            Set<Topic> topics = new HashSet<>(topicRepository.findAllById(request.getTopicIds()));
-            post.setTopics(topics);
-        }
-        
-        if (post.getStatus() == Post.PostStatus.PUBLISHED) {
-            post.setPublishedAt(LocalDateTime.now());
-        }
-        
-        post = postRepository.save(post);
-        return mapToPostDTO(post);
+    /**
+     * Get all posts (public feed)
+     */
+    public static CompletableFuture<List<Post>> getAllPosts(String token) {
+        return HttpClientUtil.get("/posts", token, com.fasterxml.jackson.databind.JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        System.out.println("DEBUG: Get all posts response: " + response.toString());
+                        // Backend returns: { success, message, data: { posts, total, page, limit } }
+                        com.fasterxml.jackson.databind.JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            System.err.println("ERROR: No data in get posts response");
+                            throw new RuntimeException("No data in response");
+                        }
+                        
+                        com.fasterxml.jackson.databind.JsonNode postsNode = dataNode.get("posts");
+                        if (postsNode == null) {
+                            System.err.println("ERROR: No posts in data");
+                            throw new RuntimeException("No posts in data");
+                        }
+                        
+                        return mapper.readValue(postsNode.toString(), new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        System.err.println("ERROR: Failed to parse posts: " + e.getMessage());
+                        e.printStackTrace();
+                        throw new RuntimeException("Failed to parse posts: " + e.getMessage(), e);
+                    }
+                });
     }
     
-    @Transactional(readOnly = true)
-    public Page<PostDTO> getAllPublishedPosts(Pageable pageable) {
-        return postRepository.findByStatusOrderByPublishedAtDesc(Post.PostStatus.PUBLISHED, pageable)
-                .map(this::mapToPostDTO);
+    /**
+     * Get post by ID
+     */
+    public static CompletableFuture<Post> getPostById(String postId, String token) {
+        return HttpClientUtil.get("/posts/" + postId, token, Post.class);
     }
     
-    @Transactional(readOnly = true)
-    public PostDTO getPostById(UUID postId) {
-        Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
-        return mapToPostDTO(post);
+    /**
+     * Create new post
+     */
+    public static CompletableFuture<Post> createPost(CreatePostRequest request, String token) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("title", request.title);
+        body.put("subtitle", request.subtitle);
+        body.put("content", request.content);
+        body.put("coverImage", request.coverImage);
+        body.put("topicIds", request.topics); // Backend expects topicIds
+        body.put("status", request.isDraft ? "DRAFT" : "PUBLISHED");
+        body.put("visibility", "PUBLIC");
+        
+        System.out.println("DEBUG: Creating post with title: " + request.title);
+        
+        return HttpClientUtil.post("/posts", body, token, com.fasterxml.jackson.databind.JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        System.out.println("DEBUG: Create post response: " + response.toString());
+                        // Backend returns: { success, message, data: PostDTO }
+                        com.fasterxml.jackson.databind.JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            System.err.println("ERROR: No data in create post response");
+                            throw new RuntimeException("No data in response");
+                        }
+                        return mapper.treeToValue(dataNode, Post.class);
+                    } catch (Exception e) {
+                        System.err.println("ERROR: Failed to parse create post response: " + e.getMessage());
+                        e.printStackTrace();
+                        throw new RuntimeException("Failed to parse post response: " + e.getMessage(), e);
+                    }
+                });
     }
     
-    @Transactional
-    public PostDTO updatePost(UUID postId, PostRequest request, UUID userId) {
-        Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+    /**
+     * Update existing post
+     */
+    public static CompletableFuture<Post> updatePost(String postId, UpdatePostRequest request, String token) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("title", request.title);
+        body.put("subtitle", request.subtitle);
+        body.put("content", request.content);
+        body.put("coverImage", request.coverImage);
+        body.put("topicIds", request.topics); // Backend expects topicIds
+        body.put("status", request.isDraft ? "DRAFT" : "PUBLISHED");
+        body.put("visibility", "PUBLIC");
         
-        if (!post.getUser().getUserId().equals(userId)) {
-            throw new UnauthorizedException("Not authorized to update this post");
-        }
-        
-        post.setTitle(request.getTitle());
-        post.setSubtitle(request.getSubtitle());
-        post.setContent(request.getContent());
-        post.setContentJson(request.getContentJson());
-        post.setCoverImage(request.getCoverImage());
-        post.setReadingTime(calculateReadingTime(request.getContent()));
-        
-        if (request.getStatus() != null) {
-            post.setStatus(request.getStatus());
-        }
-        
-        if (request.getVisibility() != null) {
-            post.setVisibility(request.getVisibility());
-        }
-        
-        if (request.getTopicIds() != null) {
-            Set<Topic> topics = new HashSet<>(topicRepository.findAllById(request.getTopicIds()));
-            post.setTopics(topics);
-        }
-        
-        post = postRepository.save(post);
-        return mapToPostDTO(post);
+        return HttpClientUtil.put("/posts/" + postId, body, token, Post.class);
     }
     
-    @Transactional
-    public void deletePost(UUID postId, UUID userId) {
-        Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+    /**
+     * Delete post
+     */
+    public static CompletableFuture<Void> deletePost(String postId, String token) {
+        return HttpClientUtil.delete("/posts/" + postId, token);
+    }
+    
+    /**
+     * Get user's draft posts
+     */
+    public static CompletableFuture<List<Post>> getDrafts(String token) {
+        return HttpClientUtil.get("/posts/drafts", token, String.class)
+                .thenApply(json -> {
+                    try {
+                        return mapper.readValue(json, new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse drafts", e);
+                    }
+                });
+    }
+    
+    /**
+     * Search posts by query
+     */
+    public static CompletableFuture<List<Post>> searchPosts(String query, String token) {
+        return HttpClientUtil.get("/posts/search?q=" + query, token, String.class)
+                .thenApply(json -> {
+                    try {
+                        return mapper.readValue(json, new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse search results", e);
+                    }
+                });
+    }
+    
+    /**
+     * Get posts by topic
+     */
+    public static CompletableFuture<List<Post>> getPostsByTopic(String topicSlug, String token) {
+        return HttpClientUtil.get("/posts/topic/" + topicSlug, token, String.class)
+                .thenApply(json -> {
+                    try {
+                        return mapper.readValue(json, new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse posts by topic", e);
+                    }
+                });
+    }
+    
+    /**
+     * Get posts by user
+     */
+    public static CompletableFuture<List<Post>> getUserPosts(String userId, String token) {
+        return HttpClientUtil.get("/posts/user/" + userId, token, String.class)
+                .thenApply(json -> {
+                    try {
+                        return mapper.readValue(json, new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse user posts", e);
+                    }
+                });
+    }
+    
+    /**
+     * Get feed for authenticated user (following + recommended)
+     */
+    public static CompletableFuture<List<Post>> getFeed(String token) {
+        return HttpClientUtil.get("/posts/feed", token, String.class)
+                .thenApply(json -> {
+                    try {
+                        return mapper.readValue(json, new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to parse feed", e);
+                    }
+                });
+    }
+    
+    /**
+     * Publish draft post
+     */
+    public static CompletableFuture<Post> publishPost(String postId, String token) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("isDraft", false);
+        return HttpClientUtil.put("/posts/" + postId, body, token, Post.class);
+    }
+    
+    // DTOs
+    public static class CreatePostRequest {
+        public String title;
+        public String subtitle;
+        public String content;
+        public String coverImage;
+        public List<String> topics;
+        public boolean isDraft = false;
+    }
+    
+    public static class UpdatePostRequest {
+        public String title;
+        public String subtitle;
+        public String content;
+        public String coverImage;
+        public List<String> topics;
+        public boolean isDraft;
+    }
+    
+    /**
+     * Get user's draft posts
+     */
+    public static CompletableFuture<List<Post>> getUserDrafts(String token) {
+        System.out.println("DEBUG: Getting user drafts");
         
-        if (!post.getUser().getUserId().equals(userId)) {
-            throw new UnauthorizedException("Not authorized to delete this post");
-        }
-        
-        postRepository.delete(post);
-    }
-    
-    @Transactional
-    public PostDTO publishPost(UUID postId, UUID userId) {
-        Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
-        
-        if (!post.getUser().getUserId().equals(userId)) {
-            throw new UnauthorizedException("Not authorized to publish this post");
-        }
-        
-        post.setStatus(Post.PostStatus.PUBLISHED);
-        post.setPublishedAt(LocalDateTime.now());
-        
-        post = postRepository.save(post);
-        return mapToPostDTO(post);
-    }
-    
-    @Transactional(readOnly = true)
-    public List<PostDTO> getUserDrafts(UUID userId) {
-        return postRepository.findDraftsByUserId(userId).stream()
-                .map(this::mapToPostDTO)
-                .collect(Collectors.toList());
-    }
-    
-    @Transactional(readOnly = true)
-    public Page<PostDTO> searchPosts(String keyword, Pageable pageable) {
-        return postRepository.searchPosts(keyword, pageable)
-                .map(this::mapToPostDTO);
-    }
-    
-    @Transactional(readOnly = true)
-    public Page<PostDTO> getPostsByUserId(UUID userId, Pageable pageable) {
-        return postRepository.findByUserUserIdAndStatusOrderByCreatedAtDesc(
-                userId, Post.PostStatus.PUBLISHED, pageable)
-                .map(this::mapToPostDTO);
-    }
-    
-    private Integer calculateReadingTime(String content) {
-        int wordCount = content.split("\\s+").length;
-        int readingTime = (int) Math.ceil(wordCount / 200.0);
-        return Math.max(1, readingTime);
-    }
-    
-    private PostDTO mapToPostDTO(Post post) {
-        Set<TopicDTO> topicDTOs = post.getTopics() != null 
-                ? post.getTopics().stream().map(this::mapToTopicDTO).collect(Collectors.toSet())
-                : new HashSet<>();
-        
-        return PostDTO.builder()
-                .postId(post.getPostId())
-                .postNumber(post.getPostNumber())
-                .title(post.getTitle())
-                .subtitle(post.getSubtitle())
-                .content(post.getContent())
-                .contentJson(post.getContentJson())
-                .coverImage(post.getCoverImage())
-                .status(post.getStatus())
-                .visibility(post.getVisibility())
-                .readingTime(post.getReadingTime())
-                .clapsCount(post.getClapsCount())
-                .commentsCount(post.getCommentsCount())
-                .viewsCount(post.getViewsCount())
-                .isFeatured(post.getIsFeatured())
-                .publishedAt(post.getPublishedAt())
-                .createdAt(post.getCreatedAt())
-                .updatedAt(post.getUpdatedAt())
-                .author(mapToUserDTO(post.getUser()))
-                .topics(topicDTOs)
-                .build();
-    }
-    
-    private UserDTO mapToUserDTO(User user) {
-        return UserDTO.builder()
-                .userId(user.getUserId())
-                .username(user.getUsername())
-                .displayName(user.getDisplayName())
-                .avatar(user.getAvatar())
-                .bio(user.getBio())
-                .build();
-    }
-    
-    private TopicDTO mapToTopicDTO(Topic topic) {
-        return TopicDTO.builder()
-                .topicId(topic.getTopicId())
-                .name(topic.getName())
-                .slug(topic.getSlug())
-                .description(topic.getDescription())
-                .imageUrl(topic.getImageUrl())
-                .followersCount(topic.getFollowersCount())
-                .postsCount(topic.getPostsCount())
-                .createdAt(topic.getCreatedAt())
-                .build();
+        return HttpClientUtil.get("/posts/my-posts?status=DRAFT", token, com.fasterxml.jackson.databind.JsonNode.class)
+                .thenApply(response -> {
+                    try {
+                        System.out.println("DEBUG: Get drafts response: " + response.toString());
+                        com.fasterxml.jackson.databind.JsonNode dataNode = response.get("data");
+                        if (dataNode == null) {
+                            return new java.util.ArrayList<>();
+                        }
+                        
+                        com.fasterxml.jackson.databind.JsonNode postsNode = dataNode.get("posts");
+                        if (postsNode == null) {
+                            return new java.util.ArrayList<>();
+                        }
+                        
+                        return mapper.readValue(postsNode.toString(), new TypeReference<List<Post>>() {});
+                    } catch (Exception e) {
+                        System.err.println("ERROR: Failed to parse drafts: " + e.getMessage());
+                        return new java.util.ArrayList<>();
+                    }
+                });
     }
 }
