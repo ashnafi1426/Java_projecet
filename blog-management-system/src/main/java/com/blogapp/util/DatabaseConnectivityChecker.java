@@ -7,9 +7,9 @@ import java.sql.Statement;
 
 public class DatabaseConnectivityChecker {
     
-    private static final String DB_URL = "jdbc:mysql://localhost:3306/java?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
-    private static final String DB_USER = "root";
-    private static final String DB_PASSWORD = "14263208@aA";
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/ashube?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
+    private static final String DB_USER = "ashube";
+    private static final String DB_PASSWORD = "05747674";
     
     public static void main(String[] args) {
         System.out.println("========================================");
@@ -54,28 +54,28 @@ public class DatabaseConnectivityChecker {
             System.out.println("   - Command: net start MySQL80");
             System.out.println("2. Verify MySQL is listening on port 3306");
             System.out.println("3. Check username and password are correct");
-            System.out.println("   Current: root / 14263208@aA");
+            System.out.println("   Current: ashube / 05747674");
             return;
         }
         System.out.println();
         
         // Step 3: Check if database exists
-        System.out.println("Step 3: Checking if database 'java' exists...");
+        System.out.println("Step 3: Checking if database 'ashube' exists...");
         try (Connection conn = DriverManager.getConnection(serverUrl, DB_USER, DB_PASSWORD);
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SHOW DATABASES LIKE 'java'")) {
+             ResultSet rs = stmt.executeQuery("SHOW DATABASES LIKE 'ashube'")) {
             
             if (rs.next()) {
-                System.out.println("✅ Database 'java' exists");
+                System.out.println("✅ Database 'ashube' exists");
             } else {
-                System.out.println("⚠️  Database 'java' does not exist");
+                System.out.println("⚠️  Database 'ashube' does not exist");
                 System.out.println("   Creating database...");
                 
                 try (Statement createStmt = conn.createStatement()) {
                     createStmt.executeUpdate(
-                        "CREATE DATABASE java CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                        "CREATE DATABASE ashube CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     );
-                    System.out.println("✅ Database 'java' created successfully");
+                    System.out.println("✅ Database 'ashube' created successfully");
                 } catch (Exception e) {
                     System.out.println("❌ Failed to create database: " + e.getMessage());
                     return;
@@ -88,9 +88,9 @@ public class DatabaseConnectivityChecker {
         System.out.println();
         
         // Step 4: Test connection to the database
-        System.out.println("Step 4: Testing connection to database 'java'...");
+        System.out.println("Step 4: Testing connection to database 'ashube'...");
         try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
-            System.out.println("✅ Successfully connected to database 'java'");
+            System.out.println("✅ Successfully connected to database 'ashube'");
             
             // Check if tables exist
             try (Statement stmt = conn.createStatement();
@@ -110,7 +110,7 @@ public class DatabaseConnectivityChecker {
                 }
             }
         } catch (Exception e) {
-            System.out.println("❌ Failed to connect to database 'java'");
+            System.out.println("❌ Failed to connect to database 'ashube'");
             System.out.println("   Error: " + e.getMessage());
             return;
         }
@@ -149,7 +149,7 @@ public class DatabaseConnectivityChecker {
         System.out.println("Database Configuration:");
         System.out.println("  URL: " + DB_URL);
         System.out.println("  User: " + DB_USER);
-        System.out.println("  Database: java");
+        System.out.println("  Database: ashube");
         System.out.println();
         System.out.println("Next Steps:");
         System.out.println("1. Run the application: mvn spring-boot:run");

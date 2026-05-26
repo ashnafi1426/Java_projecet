@@ -35,3 +35,30 @@ build/
 ### Environment ###
 .env
 *.log
+
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Temporary Files ###
+*.tmp
+*.bak
+*.swp
+*~
+$null
+
+### User-Specific ###
+*-local.*
+*.local
+
+### Maven ###
+.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
